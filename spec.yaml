@@ -1,0 +1,471 @@
+# yaml-language-server: $schema=https://api.omnistrate.cloud/2022-09-01-00/schema/service-spec-schema.json
+
+name: NVIDIA AI Multi-Cloud Pipeline
+deployment:
+  hostedDeployment:
+    AwsAccountId: "541226919566"
+    AWSBootstrapRoleAccountArn: arn:aws:iam::541226919566:role/omnistrate-bootstrap-role
+    AzureSubscriptionId: "4a66b749-4fd1-4367-a681-5deecf287e14"
+    AzureTenantId: "4e6c839d-e141-462e-bc65-8cd863580351"
+    GcpProjectId: "omnistrate-test-dp"
+    GcpProjectNumber: "383746634676"
+
+services:
+  # Core Data Storage Service
+  - name: Model Registry
+    internal: false
+    compute:
+      instanceTypes:
+        - cloudProvider: aws
+          name: m7i.large
+        - cloudProvider: gcp
+          name: n2-standard-2
+        - cloudProvider: azure
+          name: Standard_D2s_v3
+    helmChartConfiguration:
+      chartName: minio
+      chartVersion: 17.0.19
+      chartRepoName: bitnami
+      chartRepoURL: https://charts.bitnami.com/bitnami
+      layeredChartValues:
+        # Base configuration for all clouds
+        - values:
+            auth:
+              rootUser: $var.adminUsername
+              rootPassword: $var.adminPassword
+            defaultBuckets: "models,datasets,checkpoints"
+            persistence:
+              enabled: true
+              size: "100Gi"
+            resources:
+              requests:
+                cpu: 250m
+                memory: 512Mi
+              limits:
+                cpu: 1000m
+                memory: 2Gi
+            affinity:
+              nodeAffinity:
+                requiredDuringSchedulingIgnoredDuringExecution:
+                  nodeSelectorTerms:
+                    - matchExpressions:
+                        - key: omnistrate.com/managed-by
+                          operator: In
+                          values:
+                            - omnistrate
+                        - key: topology.kubernetes.io/region
+                          operator: In
+                          values:
+                            - $sys.deploymentCell.region
+                        - key: node.kubernetes.io/instance-type
+                          operator: In
+                          values:
+                            - $sys.compute.node.instanceType
+                        - key: omnistrate.com/resource
+                          operator: In
+                          values:
+                            - $sys.deployment.resourceID
+        # AWS-specific optimizations
+        - scope:
+            "{{ $sys.deploymentCell.cloudProviderName }}": "aws"
+          values:
+            persistence:
+              storageClass: "gp3"
+            service:
+              annotations:
+                service.beta.kubernetes.io/aws-load-balancer-type: "nlb"
+                service.beta.kubernetes.io/aws-load-balancer-cross-zone-load-balancing-enabled: "true"
+        # GCP-specific optimizations
+        - scope:
+            "{{ $sys.deploymentCell.cloudProviderName }}": "gcp"
+          values:
+            persistence:
+              storageClass: "ssd"
+            service:
+              annotations:
+                cloud.google.com/load-balancer-type: "Internal"
+        # Azure-specific optimizations
+        - scope:
+            "{{ $sys.deploymentCell.cloudProviderName }}": "azure"
+          values:
+            persistence:
+              storageClass: "managed-csi"
+            service:
+              annotations:
+                service.beta.kubernetes.io/azure-load-balancer-internal: "true"
+    apiParameters:
+      - key: adminUsername
+        description: Storage Admin Username
+        name: Admin Username
+        type: String
+        modifiable: true
+        required: false
+        export: true
+        defaultValue: "admin"
+      - key: adminPassword
+        description: Storage Admin Password
+        name: Admin Password
+        type: Password
+        modifiable: true
+        required: true
+        export: true
+
+  # Training Service - TAO Toolkit
+  - name: TAO Training Service
+    dependsOn:
+      - Model Registry
+    compute:
+      instanceTypes:
+        - cloudProvider: aws
+          name: g4dn.xlarge
+        - cloudProvider: gcp
+          name: n2-standard-4
+          configurationOverrides:
+            AcceleratorConfiguration:
+              type: "nvidia-l4"
+              count: 1
+        - cloudProvider: azure
+          name: Standard_NC4as_T4_v3
+    network:
+      ports:
+        - 8888  # Jupyter Notebook
+        - 6006  # TensorBoard
+    helmChartConfiguration:
+      chartName: tao-toolkit-api
+      chartVersion: 6.25.7
+      chartRepoName: nvidia-tao
+      chartRepoURL: https://helm.ngc.nvidia.com/nvidia/tao
+      layeredChartValues:
+        # Base configuration
+        - values:
+            replicaCount: 1
+            ingressEnabled: false
+            resources:
+              requests:
+                cpu: 4000m
+                memory: 16Gi
+                nvidia.com/gpu: 1
+              limits:
+                cpu: 8000m
+                memory: 32Gi
+                nvidia.com/gpu: 1
+            persistence:
+              enabled: true
+              size: "200Gi"
+            env:
+              - name: MODEL_REGISTRY_ENDPOINT
+                value: minio
+              - name: MINIO_ACCESS_KEY
+                value: $var.adminUsername
+              - name: MINIO_SECRET_KEY
+                value: $var.adminPassword
+              - name: TAO_GPU_COUNT
+                value: $var.trainingGpuCount
+            tolerations:
+              - key: nvidia.com/gpu
+                operator: Exists
+                effect: NoSchedule
+            affinity:
+              nodeAffinity:
+                requiredDuringSchedulingIgnoredDuringExecution:
+                  nodeSelectorTerms:
+                    - matchExpressions:
+                        - key: omnistrate.com/managed-by
+                          operator: In
+                          values:
+                            - omnistrate
+                        - key: topology.kubernetes.io/region
+                          operator: In
+                          values:
+                            - $sys.deploymentCell.region
+                        - key: node.kubernetes.io/instance-type
+                          operator: In
+                          values:
+                            - $sys.compute.node.instanceType
+                        - key: omnistrate.com/resource
+                          operator: In
+                          values:
+                            - $sys.deployment.resourceID
+        # AWS-specific configuration
+        - scope:
+            "{{ $sys.deploymentCell.cloudProviderName }}": "aws"
+          values:
+            nodeSelector:
+              node.kubernetes.io/instance-type: g4dn.xlarge
+            persistence:
+              storageClass: "gp3"
+            env:
+              - name: AWS_DEFAULT_REGION
+                value: "{{ $sys.deploymentCell.region }}"
+        # GCP-specific configuration
+        - scope:
+            "{{ $sys.deploymentCell.cloudProviderName }}": "gcp"
+          values:
+            persistence:
+              storageClass: "ssd"
+            env:
+              - name: GOOGLE_CLOUD_PROJECT
+                value: "{{ $sys.deploymentCell.gcpProjectId }}"
+        # Azure-specific configuration
+        - scope:
+            "{{ $sys.deploymentCell.cloudProviderName }}": "azure"
+          values:
+            nodeSelector:
+              agentpool: gpu
+            persistence:
+              storageClass: "managed-csi"
+    apiParameters:
+      - key: trainingGpuCount
+        description: Number of GPUs for Training
+        name: Training GPU Count
+        type: String
+        modifiable: true
+        required: false
+        export: true
+        defaultValue: "1"
+      # Inherited parameters
+      - key: adminUsername
+        description: Storage Admin Username
+        name: Admin Username
+        type: String
+        modifiable: false
+        required: false
+        export: true
+        parameterDependencyMap:
+          Model Registry: adminUsername
+      - key: adminPassword
+        description: Storage Admin Password
+        name: Admin Password
+        type: Password
+        modifiable: false
+        required: true
+        export: true
+        parameterDependencyMap:
+          Model Registry: adminPassword
+
+  # Inference Service - NVIDIA Dynamo
+  - name: Dynamo Inference Service
+    dependsOn:
+      - Model Registry
+      - TAO Training Service
+      - Monitoring Stack
+    compute:
+      instanceTypes:
+        - cloudProvider: aws
+          name: g4dn.xlarge
+        - cloudProvider: gcp
+          name: n2-standard-4
+          configurationOverrides:
+            AcceleratorConfiguration:
+              type: "nvidia-l4"
+              count: 1
+        - cloudProvider: azure
+          name: Standard_NC4as_T4_v3
+    network:
+      ports:
+        - 8000  # Inference API
+        - 8001  # Metrics
+        - 8002  # Health Check
+    operatorCRDConfiguration:
+      helmChartDependencies:
+        - chartName: dynamo-crds
+          chartVersion: 0.4.0
+          chartRepoName: nvidia-dynamo
+          chartRepoURL: https://helm.ngc.nvidia.com/nvidia/ai-dynamo
+        - chartName: dynamo-platform
+          chartVersion: 0.4.0
+          chartRepoName: nvidia-dynamo
+          chartRepoURL: https://helm.ngc.nvidia.com/nvidia/ai-dynamo
+      template: |
+        apiVersion: nvidia.com/v1alpha1
+        kind: DynamoGraphDeployment
+        metadata:
+          name: disagg
+        spec:
+          envs:
+          - name: GLOBAL_ENV_VAR
+            value: some_global_value
+          services:
+            Frontend:
+              replicas: 1
+            Processor:
+              replicas: 1
+            VllmWorker:
+              replicas: {{ $var.inferenceReplicas }}
+            PrefillWorker:
+              replicas: 1
+    apiParameters:
+      - key: inferenceReplicas
+        description: Number of Inference Replicas
+        name: Inference Replicas
+        type: String
+        modifiable: true
+        required: false
+        export: true
+        defaultValue: "2"
+      # Inherited parameters
+      - key: adminUsername
+        description: Storage Admin Username
+        name: Admin Username
+        type: String
+        modifiable: false
+        required: false
+        export: true
+        parameterDependencyMap:
+          Model Registry: adminUsername
+          TAO Training Service: adminUsername
+      - key: adminPassword
+        description: Storage Admin Password
+        name: Admin Password
+        type: Password
+        modifiable: false
+        required: true
+        export: true
+        parameterDependencyMap:
+          Model Registry: adminPassword
+          TAO Training Service: adminPassword
+          Monitoring Stack: monitoringPassword
+
+  # Monitoring Stack
+  - name: Monitoring Stack
+    internal: true
+    compute:
+      instanceTypes:
+        - cloudProvider: aws
+          name: m5.xlarge
+        - cloudProvider: gcp
+          name: n2-standard-4
+        - cloudProvider: azure
+          name: Standard_D4s_v3
+    network:
+      ports:
+        - 3000  # Grafana
+        - 9090  # Prometheus
+    helmChartConfiguration:
+      chartName: kube-prometheus-stack
+      chartVersion: 61.3.0
+      chartRepoName: prometheus-community
+      chartRepoURL: https://prometheus-community.github.io/helm-charts
+      layeredChartValues:
+        # Base monitoring configuration
+        - values:
+            prometheus:
+              prometheusSpec:
+                retention: 30d
+                storageSpec:
+                  volumeClaimTemplate:
+                    spec:
+                      accessModes: ["ReadWriteOnce"]
+                      resources:
+                        requests:
+                          storage: "50Gi"
+                affinity:
+                  nodeAffinity:
+                    requiredDuringSchedulingIgnoredDuringExecution:
+                      nodeSelectorTerms:
+                        - matchExpressions:
+                            - key: omnistrate.com/managed-by
+                              operator: In
+                              values:
+                                - omnistrate
+                            - key: topology.kubernetes.io/region
+                              operator: In
+                              values:
+                                - $sys.deploymentCell.region
+                            - key: node.kubernetes.io/instance-type
+                              operator: In
+                              values:
+                                - $sys.compute.node.instanceType
+                            - key: omnistrate.com/resource
+                              operator: In
+                              values:
+                                - $sys.deployment.resourceID
+            grafana:
+              persistence:
+                enabled: true
+                size: "10Gi"
+              adminPassword: $var.monitoringPassword
+              service:
+                type: LoadBalancer
+              dashboardProviders:
+                dashboardproviders.yaml:
+                  apiVersion: 1
+                  providers:
+                    - name: 'nvidia-dashboards'
+                      folder: 'NVIDIA'
+                      type: file
+                      options:
+                        path: /var/lib/grafana/dashboards/nvidia
+              affinity:
+                nodeAffinity:
+                  requiredDuringSchedulingIgnoredDuringExecution:
+                    nodeSelectorTerms:
+                      - matchExpressions:
+                          - key: omnistrate.com/managed-by
+                            operator: In
+                            values:
+                              - omnistrate
+                          - key: topology.kubernetes.io/region
+                            operator: In
+                            values:
+                              - $sys.deploymentCell.region
+                          - key: node.kubernetes.io/instance-type
+                            operator: In
+                            values:
+                              - $sys.compute.node.instanceType
+                          - key: omnistrate.com/resource
+                            operator: In
+                            values:
+                              - $sys.deployment.resourceID
+            nodeExporter:
+              enabled: true
+            kubeStateMetrics:
+              enabled: true
+        # AWS-specific storage optimizations
+        - scope:
+            "{{ $sys.deploymentCell.cloudProviderName }}": "aws"
+          values:
+            prometheus:
+              prometheusSpec:
+                storageSpec:
+                  volumeClaimTemplate:
+                    spec:
+                      storageClassName: "gp3"
+            grafana:
+              persistence:
+                storageClassName: "gp3"
+        # GCP-specific storage optimizations  
+        - scope:
+            "{{ $sys.deploymentCell.cloudProviderName }}": "gcp"
+          values:
+            prometheus:
+              prometheusSpec:
+                storageSpec:
+                  volumeClaimTemplate:
+                    spec:
+                      storageClassName: "ssd"
+            grafana:
+              persistence:
+                storageClassName: "ssd"
+        # Azure-specific storage optimizations
+        - scope:
+            "{{ $sys.deploymentCell.cloudProviderName }}": "azure"
+          values:
+            prometheus:
+              prometheusSpec:
+                storageSpec:
+                  volumeClaimTemplate:
+                    spec:
+                      storageClassName: "managed-csi"
+            grafana:
+              persistence:
+                storageClassName: "managed-csi"
+    apiParameters:
+      - key: monitoringPassword
+        description: Grafana Admin Password
+        name: Monitoring Password
+        type: Password
+        modifiable: true
+        required: true
+        export: true
+
