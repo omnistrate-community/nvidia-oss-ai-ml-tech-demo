@@ -8,6 +8,8 @@ This is a comprehensive example of an enterprise-grade NVIDIA AI/ML platform spe
 
 ## Architecture
 
+![NVIDIA AI Multi-Cloud Pipeline](nvidia-ai-multi-cloud-pipeline-blueprint.png)
+
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────────────┐
 │                        NVIDIA AI Multi-Cloud Pipeline                                   │
@@ -79,9 +81,12 @@ This is a comprehensive example of an enterprise-grade NVIDIA AI/ML platform spe
 └──────────────────────────────────────────────────────────────────────────────────────-───┘
 ```
 
+
+
 ## Getting Started: Deploy Your AI Platform in Minutes
 
 ### 1. Prerequisites
+Go to https://omnistrate.cloud to get started with Omnistrate.
 ```bash
 # Just need an Omnistrate account - no cloud expertise required!
 - Omnistrate account with cloud providers connected
@@ -90,6 +95,7 @@ This is a comprehensive example of an enterprise-grade NVIDIA AI/ML platform spe
 ```
 
 ### 2. Setup the Platform Control Plane
+Follow https://ctl.omnistrate.cloud/install/ to install the Omnistrate CLI
 ```bash
 omctl build -f spec.yaml --name 'NVIDIA Platform' --spec-type ServicePlanSpec --release-as-preferred
 ```
@@ -315,6 +321,9 @@ Monitoring Stack:
   - GPU utilization tracking and optimization insights through the Omnistrate platform
   - Cost analytics and resource optimization through the Omnistrate platform
 ```
+
+![Cost Insights](cost-insights.png)
+
 
 ## Multi-Cloud Layered Configuration
 
