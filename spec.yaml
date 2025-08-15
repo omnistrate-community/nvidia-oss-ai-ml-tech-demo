@@ -1,0 +1,342 @@
+# yaml-language-server: $schema=https://api.omnistrate.cloud/2022-09-01-00/schema/service-spec-schema.json
+
+name: NVIDIA AI Multi-Cloud Pipeline
+deployment:
+  hostedDeployment:
+    AwsAccountId: "<Your AWS Account ID>"
+    AWSBootstrapRoleAccountArn: arn:aws:iam::<Your AWS Account ID>:role/omnistrate-bootstrap-role
+    AzureSubscriptionId: "<Your Azure Subscription ID>"
+    AzureTenantId: "<Your Azure Tenant ID>"
+    GcpProjectId: "<Your GCP Project ID>"
+    GcpProjectNumber: "<Your GCP Project Number>"
+
+services:
+  - name: AI Platform Cluster
+    internal: false
+    passive: true
+    dependsOn:
+      - Dynamo Inference Service
+      - TAO Training Service
+    apiParameters:
+      - key: inferenceReplicas
+        description: Number of Inference Replicas
+        name: Inference Replicas
+        type: String
+        modifiable: true
+        required: false
+        export: true
+        defaultValue: "2"
+        parameterDependencyMap:
+          Dynamo Inference Service: inferenceReplicas
+      # Inherited parameters
+      - key: adminUsername
+        description: Storage Admin Username
+        name: Admin Username
+        type: String
+        modifiable: false
+        required: false
+        export: true
+        parameterDependencyMap:
+          TAO Training Service: adminUsername
+      - key: adminPassword
+        description: Storage Admin Password
+        name: Admin Password
+        type: Password
+        modifiable: false
+        required: true
+        export: true
+        parameterDependencyMap:
+          TAO Training Service: adminPassword
+  # Core Data Storage Service
+  - name: Model Registry
+    internal: true
+    compute:
+      rootVolumeSizeGi: 100
+      instanceTypes:
+        - cloudProvider: aws
+          name: m7i.large
+        # - cloudProvider: gcp
+        #   name: n2-standard-2
+        - cloudProvider: azure
+          name: Standard_D2s_v3
+    network:
+      ports:
+        - 9090
+    helmChartConfiguration:
+      chartName: minio
+      chartVersion: 17.0.19
+      chartRepoName: bitnami
+      chartRepoURL: https://charts.bitnami.com/bitnami
+      layeredChartValues:
+        # Base configuration for all clouds
+        - values:
+            auth:
+              rootUser: $var.adminUsername
+              rootPassword: $var.adminPassword
+            defaultBuckets: "models,datasets,checkpoints"
+            persistence:
+              enabled: true
+              size: "100Gi"
+            resources:
+              requests:
+                cpu: 250m
+                memory: 512Mi
+              limits:
+                cpu: 1000m
+                memory: 2Gi
+            affinity:
+              nodeAffinity:
+                requiredDuringSchedulingIgnoredDuringExecution:
+                  nodeSelectorTerms:
+                    - matchExpressions:
+                        - key: omnistrate.com/managed-by
+                          operator: In
+                          values:
+                            - omnistrate
+                        - key: topology.kubernetes.io/region
+                          operator: In
+                          values:
+                            - $sys.deploymentCell.region
+                        - key: node.kubernetes.io/instance-type
+                          operator: In
+                          values:
+                            - $sys.compute.node.instanceType
+                        - key: omnistrate.com/resource
+                          operator: In
+                          values:
+                            - $sys.deployment.resourceID
+        # AWS-specific optimizations
+        - scope:
+            "{{ $sys.deploymentCell.cloudProviderName }}": "aws"
+          values:
+            persistence:
+              storageClass: "gp3"
+        # GCP-specific optimizations
+        - scope:
+            "{{ $sys.deploymentCell.cloudProviderName }}": "gcp"
+          values:
+            persistence:
+              storageClass: "ssd"
+        # Azure-specific optimizations
+        - scope:
+            "{{ $sys.deploymentCell.cloudProviderName }}": "azure"
+          values:
+            persistence:
+              storageClass: "managed-csi"
+    apiParameters:
+      - key: adminUsername
+        description: Storage Admin Username
+        name: Admin Username
+        type: String
+        modifiable: true
+        required: false
+        export: true
+        defaultValue: "admin"
+      - key: adminPassword
+        description: Storage Admin Password
+        name: Admin Password
+        type: Password
+        modifiable: true
+        required: true
+        export: true
+
+  # Training Service - TAO Toolkit
+  - name: TAO Training Service
+    internal: true
+    dependsOn:
+      - Model Registry
+    compute:
+      rootVolumeSizeGi: 100
+      instanceTypes:
+        - cloudProvider: aws
+          name: g4dn.xlarge
+        # - cloudProvider: gcp
+        #   name: n2-standard-4
+        #   configurationOverrides:
+        #     AcceleratorConfiguration:
+        #       type: "nvidia-l4"
+        #       count: 1
+        - cloudProvider: azure
+          name: Standard_NC4as_T4_v3
+    network:
+      ports:
+        - 8888  # Jupyter Notebook
+        - 6006  # TensorBoard
+        - 8000  # Swagger
+    endpointConfiguration:
+      console:
+        host: $sys.network.externalClusterEndpoint
+        ports:
+          - 8000
+        primary: true
+        networkingType: PUBLIC
+    helmChartConfiguration:
+      chartName: tao-toolkit-api
+      chartVersion: 6.25.7
+      chartRepoName: nvidia-tao
+      chartRepoURL: https://helm.ngc.nvidia.com/nvidia/tao
+      layeredChartValues:
+        # Base configuration
+        - values:
+            ingressEnabled: false
+            ngc_api_key: $secret.NGCAPIKEY
+            mongoMemoryRequest: 1Gi
+            mongoCpuRequest: 1
+            mongoCpuLimit: 1
+            mongoMemoryLimit: 2Gi
+            persistence:
+              enabled: true
+              size: "200Gi"
+            env:
+              - name: MODEL_REGISTRY_ENDPOINT
+                value: minio
+              - name: MINIO_ACCESS_KEY
+                value: $var.adminUsername
+              - name: MINIO_SECRET_KEY
+                value: $var.adminPassword
+              - name: TAO_GPU_COUNT
+                value: $var.trainingGpuCount
+            tolerations:
+              - key: nvidia.com/gpu
+                operator: Exists
+                effect: NoSchedule
+            affinity:
+              nodeAffinity:
+                requiredDuringSchedulingIgnoredDuringExecution:
+                  nodeSelectorTerms:
+                    - matchExpressions:
+                        - key: omnistrate.com/managed-by
+                          operator: In
+                          values:
+                            - omnistrate
+                        - key: topology.kubernetes.io/region
+                          operator: In
+                          values:
+                            - $sys.deploymentCell.region
+                        - key: node.kubernetes.io/instance-type
+                          operator: In
+                          values:
+                            - $sys.compute.node.instanceType
+                        - key: omnistrate.com/resource
+                          operator: In
+                          values:
+                            - $sys.deployment.resourceID
+        # AWS-specific configuration
+        - scope:
+            "{{ $sys.deploymentCell.cloudProviderName }}": "aws"
+          values:
+            nodeSelector:
+              node.kubernetes.io/instance-type: g4dn.xlarge
+            persistence:
+              storageClass: "gp3"
+            env:
+              - name: AWS_DEFAULT_REGION
+                value: "{{ $sys.deploymentCell.region }}"
+        # GCP-specific configuration
+        - scope:
+            "{{ $sys.deploymentCell.cloudProviderName }}": "gcp"
+          values:
+            persistence:
+              storageClass: "ssd"
+            env:
+              - name: GOOGLE_CLOUD_PROJECT
+                value: "{{ $sys.deploymentCell.gcpProjectId }}"
+        # Azure-specific configuration
+        - scope:
+            "{{ $sys.deploymentCell.cloudProviderName }}": "azure"
+          values:
+            nodeSelector:
+              agentpool: gpu
+            persistence:
+              storageClass: "managed-csi"
+            service:
+              annotations:
+                service.beta.kubernetes.io/azure-load-balancer-internal: "false"
+                service.beta.kubernetes.io/azure-load-balancer-resource-group: "rg-eastus2-hc-0xtrutlsz"
+    apiParameters:
+      - key: trainingGpuCount
+        description: Number of GPUs for Training
+        name: Training GPU Count
+        type: String
+        modifiable: true
+        required: false
+        export: true
+        defaultValue: "1"
+      # Inherited parameters
+      - key: adminUsername
+        description: Storage Admin Username
+        name: Admin Username
+        type: String
+        modifiable: false
+        required: false
+        export: true
+        parameterDependencyMap:
+          Model Registry: adminUsername
+      - key: adminPassword
+        description: Storage Admin Password
+        name: Admin Password
+        type: Password
+        modifiable: false
+        required: true
+        export: true
+        parameterDependencyMap:
+          Model Registry: adminPassword
+
+  # Inference Service - NVIDIA Dynamo
+  - name: Dynamo Inference Service
+    internal: true
+    compute:
+      rootVolumeSizeGi: 100
+      instanceTypes:
+        - cloudProvider: aws
+          name: g4dn.xlarge
+        # - cloudProvider: gcp
+        #   name: n2-standard-4
+        #   configurationOverrides:
+        #     AcceleratorConfiguration:
+        #       type: "nvidia-l4"
+        #       count: 1
+        - cloudProvider: azure
+          name: Standard_NC4as_T4_v3
+    network:
+      ports:
+        - 8000  # Inference API
+        - 8001  # Metrics
+        - 8002  # Health Check
+    operatorCRDConfiguration:
+      helmChartDependencies:
+        - chartName: dynamo-crds
+          chartVersion: 0.4.0
+          chartRepoName: nvidia-dynamo
+          chartRepoURL: https://helm.ngc.nvidia.com/nvidia/ai-dynamo
+        - chartName: dynamo-platform
+          chartVersion: 0.4.0
+          chartRepoName: nvidia-dynamo
+          chartRepoURL: https://helm.ngc.nvidia.com/nvidia/ai-dynamo
+      template: |
+        apiVersion: nvidia.com/v1alpha1
+        kind: DynamoGraphDeployment
+        metadata:
+          name: disagg
+        spec:
+          envs:
+          - name: GLOBAL_ENV_VAR
+            value: some_global_value
+          services:
+            Frontend:
+              replicas: 1
+            Processor:
+              replicas: 1
+            VllmWorker:
+              replicas: {{ $var.inferenceReplicas }}
+            PrefillWorker:
+              replicas: 1
+    apiParameters:
+      - key: inferenceReplicas
+        description: Number of Inference Replicas
+        name: Inference Replicas
+        type: String
+        modifiable: true
+        required: false
+        export: true
+        defaultValue: "2"
