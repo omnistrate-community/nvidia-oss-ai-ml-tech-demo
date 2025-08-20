@@ -18,10 +18,20 @@ services:
       instanceTypes:
         - cloudProvider: aws
           name: m7i.large
-        - cloudProvider: gcp
-          name: n2-standard-2
+        # - cloudProvider: gcp
+        #   name: n2-standard-2
         - cloudProvider: azure
           name: Standard_D2s_v3
+    network:
+      ports:
+        - 9090
+    endpointConfiguration:
+      console:
+        host: $sys.network.internalClusterEndpoint
+        ports:
+          - 9090
+        primary: true
+        networkingType: PRIVATE
     helmChartConfiguration:
       chartName: minio
       chartVersion: 17.0.19
@@ -118,12 +128,12 @@ services:
       instanceTypes:
         - cloudProvider: aws
           name: g4dn.xlarge
-        - cloudProvider: gcp
-          name: n2-standard-4
-          configurationOverrides:
-            AcceleratorConfiguration:
-              type: "nvidia-l4"
-              count: 1
+        # - cloudProvider: gcp
+        #   name: n2-standard-4
+        #   configurationOverrides:
+        #     AcceleratorConfiguration:
+        #       type: "nvidia-l4"
+        #       count: 1
         - cloudProvider: azure
           name: Standard_NC4as_T4_v3
     network:
@@ -248,17 +258,17 @@ services:
     dependsOn:
       - Model Registry
       - TAO Training Service
-      - Monitoring Stack
+      # - Monitoring Stack
     compute:
       instanceTypes:
         - cloudProvider: aws
           name: g4dn.xlarge
-        - cloudProvider: gcp
-          name: n2-standard-4
-          configurationOverrides:
-            AcceleratorConfiguration:
-              type: "nvidia-l4"
-              count: 1
+        # - cloudProvider: gcp
+        #   name: n2-standard-4
+        #   configurationOverrides:
+        #     AcceleratorConfiguration:
+        #       type: "nvidia-l4"
+        #       count: 1
         - cloudProvider: azure
           name: Standard_NC4as_T4_v3
     network:
@@ -324,148 +334,147 @@ services:
         parameterDependencyMap:
           Model Registry: adminPassword
           TAO Training Service: adminPassword
-          Monitoring Stack: monitoringPassword
+          # Monitoring Stack: monitoringPassword
 
   # Monitoring Stack
-  - name: Monitoring Stack
-    internal: true
-    compute:
-      instanceTypes:
-        - cloudProvider: aws
-          name: m5.xlarge
-        - cloudProvider: gcp
-          name: n2-standard-4
-        - cloudProvider: azure
-          name: Standard_D4s_v3
-    network:
-      ports:
-        - 3000  # Grafana
-        - 9090  # Prometheus
-    helmChartConfiguration:
-      chartName: kube-prometheus-stack
-      chartVersion: 61.3.0
-      chartRepoName: prometheus-community
-      chartRepoURL: https://prometheus-community.github.io/helm-charts
-      layeredChartValues:
-        # Base monitoring configuration
-        - values:
-            prometheus:
-              prometheusSpec:
-                retention: 30d
-                storageSpec:
-                  volumeClaimTemplate:
-                    spec:
-                      accessModes: ["ReadWriteOnce"]
-                      resources:
-                        requests:
-                          storage: "50Gi"
-                affinity:
-                  nodeAffinity:
-                    requiredDuringSchedulingIgnoredDuringExecution:
-                      nodeSelectorTerms:
-                        - matchExpressions:
-                            - key: omnistrate.com/managed-by
-                              operator: In
-                              values:
-                                - omnistrate
-                            - key: topology.kubernetes.io/region
-                              operator: In
-                              values:
-                                - $sys.deploymentCell.region
-                            - key: node.kubernetes.io/instance-type
-                              operator: In
-                              values:
-                                - $sys.compute.node.instanceType
-                            - key: omnistrate.com/resource
-                              operator: In
-                              values:
-                                - $sys.deployment.resourceID
-            grafana:
-              persistence:
-                enabled: true
-                size: "10Gi"
-              adminPassword: $var.monitoringPassword
-              service:
-                type: LoadBalancer
-              dashboardProviders:
-                dashboardproviders.yaml:
-                  apiVersion: 1
-                  providers:
-                    - name: 'nvidia-dashboards'
-                      folder: 'NVIDIA'
-                      type: file
-                      options:
-                        path: /var/lib/grafana/dashboards/nvidia
-              affinity:
-                nodeAffinity:
-                  requiredDuringSchedulingIgnoredDuringExecution:
-                    nodeSelectorTerms:
-                      - matchExpressions:
-                          - key: omnistrate.com/managed-by
-                            operator: In
-                            values:
-                              - omnistrate
-                          - key: topology.kubernetes.io/region
-                            operator: In
-                            values:
-                              - $sys.deploymentCell.region
-                          - key: node.kubernetes.io/instance-type
-                            operator: In
-                            values:
-                              - $sys.compute.node.instanceType
-                          - key: omnistrate.com/resource
-                            operator: In
-                            values:
-                              - $sys.deployment.resourceID
-            nodeExporter:
-              enabled: true
-            kubeStateMetrics:
-              enabled: true
-        # AWS-specific storage optimizations
-        - scope:
-            "{{ $sys.deploymentCell.cloudProviderName }}": "aws"
-          values:
-            prometheus:
-              prometheusSpec:
-                storageSpec:
-                  volumeClaimTemplate:
-                    spec:
-                      storageClassName: "gp3"
-            grafana:
-              persistence:
-                storageClassName: "gp3"
-        # GCP-specific storage optimizations  
-        - scope:
-            "{{ $sys.deploymentCell.cloudProviderName }}": "gcp"
-          values:
-            prometheus:
-              prometheusSpec:
-                storageSpec:
-                  volumeClaimTemplate:
-                    spec:
-                      storageClassName: "ssd"
-            grafana:
-              persistence:
-                storageClassName: "ssd"
-        # Azure-specific storage optimizations
-        - scope:
-            "{{ $sys.deploymentCell.cloudProviderName }}": "azure"
-          values:
-            prometheus:
-              prometheusSpec:
-                storageSpec:
-                  volumeClaimTemplate:
-                    spec:
-                      storageClassName: "managed-csi"
-            grafana:
-              persistence:
-                storageClassName: "managed-csi"
-    apiParameters:
-      - key: monitoringPassword
-        description: Grafana Admin Password
-        name: Monitoring Password
-        type: Password
-        modifiable: true
-        required: true
-        export: true
-
+  # - name: Monitoring Stack
+  #   internal: true
+  #   compute:
+  #     instanceTypes:
+  #       - cloudProvider: aws
+  #         name: m5.xlarge
+  #       - cloudProvider: gcp
+  #         name: n2-standard-4
+  #       - cloudProvider: azure
+  #         name: Standard_D4s_v3
+  #   network:
+  #     ports:
+  #       - 3000  # Grafana
+  #       - 9090  # Prometheus
+  #   helmChartConfiguration:
+  #     chartName: kube-prometheus-stack
+  #     chartVersion: 61.3.0
+  #     chartRepoName: prometheus-community
+  #     chartRepoURL: https://prometheus-community.github.io/helm-charts
+  #     layeredChartValues:
+  #       # Base monitoring configuration
+  #       - values:
+  #           prometheus:
+  #             prometheusSpec:
+  #               retention: 30d
+  #               storageSpec:
+  #                 volumeClaimTemplate:
+  #                   spec:
+  #                     accessModes: ["ReadWriteOnce"]
+  #                     resources:
+  #                       requests:
+  #                         storage: "50Gi"
+  #               affinity:
+  #                 nodeAffinity:
+  #                   requiredDuringSchedulingIgnoredDuringExecution:
+  #                     nodeSelectorTerms:
+  #                       - matchExpressions:
+  #                           - key: omnistrate.com/managed-by
+  #                             operator: In
+  #                             values:
+  #                               - omnistrate
+  #                           - key: topology.kubernetes.io/region
+  #                             operator: In
+  #                             values:
+  #                               - $sys.deploymentCell.region
+  #                           - key: node.kubernetes.io/instance-type
+  #                             operator: In
+  #                             values:
+  #                               - $sys.compute.node.instanceType
+  #                           - key: omnistrate.com/resource
+  #                             operator: In
+  #                             values:
+  #                               - $sys.deployment.resourceID
+  #           grafana:
+  #             persistence:
+  #               enabled: true
+  #               size: "10Gi"
+  #             adminPassword: $var.monitoringPassword
+  #             service:
+  #               type: LoadBalancer
+  #             dashboardProviders:
+  #               dashboardproviders.yaml:
+  #                 apiVersion: 1
+  #                 providers:
+  #                   - name: 'nvidia-dashboards'
+  #                     folder: 'NVIDIA'
+  #                     type: file
+  #                     options:
+  #                       path: /var/lib/grafana/dashboards/nvidia
+  #             affinity:
+  #               nodeAffinity:
+  #                 requiredDuringSchedulingIgnoredDuringExecution:
+  #                   nodeSelectorTerms:
+  #                     - matchExpressions:
+  #                         - key: omnistrate.com/managed-by
+  #                           operator: In
+  #                           values:
+  #                             - omnistrate
+  #                         - key: topology.kubernetes.io/region
+  #                           operator: In
+  #                           values:
+  #                             - $sys.deploymentCell.region
+  #                         - key: node.kubernetes.io/instance-type
+  #                           operator: In
+  #                           values:
+  #                             - $sys.compute.node.instanceType
+  #                         - key: omnistrate.com/resource
+  #                           operator: In
+  #                           values:
+  #                             - $sys.deployment.resourceID
+  #           nodeExporter:
+  #             enabled: true
+  #           kubeStateMetrics:
+  #             enabled: true
+  #       # AWS-specific storage optimizations
+  #       - scope:
+  #           "{{ $sys.deploymentCell.cloudProviderName }}": "aws"
+  #         values:
+  #           prometheus:
+  #             prometheusSpec:
+  #               storageSpec:
+  #                 volumeClaimTemplate:
+  #                   spec:
+  #                     storageClassName: "gp3"
+  #           grafana:
+  #             persistence:
+  #               storageClassName: "gp3"
+  #       # GCP-specific storage optimizations  
+  #       - scope:
+  #           "{{ $sys.deploymentCell.cloudProviderName }}": "gcp"
+  #         values:
+  #           prometheus:
+  #             prometheusSpec:
+  #               storageSpec:
+  #                 volumeClaimTemplate:
+  #                   spec:
+  #                     storageClassName: "ssd"
+  #           grafana:
+  #             persistence:
+  #               storageClassName: "ssd"
+  #       # Azure-specific storage optimizations
+  #       - scope:
+  #           "{{ $sys.deploymentCell.cloudProviderName }}": "azure"
+  #         values:
+  #           prometheus:
+  #             prometheusSpec:
+  #               storageSpec:
+  #                 volumeClaimTemplate:
+  #                   spec:
+  #                     storageClassName: "managed-csi"
+  #           grafana:
+  #             persistence:
+  #               storageClassName: "managed-csi"
+  #   apiParameters:
+  #     - key: monitoringPassword
+  #       description: Grafana Admin Password
+  #       name: Monitoring Password
+  #       type: Password
+  #       modifiable: true
+  #       required: true
+  #       export: true
