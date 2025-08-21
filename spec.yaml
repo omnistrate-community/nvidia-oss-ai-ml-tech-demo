@@ -17,7 +17,6 @@ services:
     dependsOn:
       - Dynamo Inference Service
       - TAO Training Service
-      # - Monitoring Stack
     apiParameters:
       - key: inferenceReplicas
         description: Number of Inference Replicas
@@ -48,7 +47,6 @@ services:
         export: true
         parameterDependencyMap:
           TAO Training Service: adminPassword
-          # Monitoring Stack: monitoringPassword
   # Core Data Storage Service
   - name: Model Registry
     internal: true
