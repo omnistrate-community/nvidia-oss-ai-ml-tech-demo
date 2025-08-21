@@ -53,6 +53,7 @@ services:
   - name: Model Registry
     internal: true
     compute:
+      rootVolumeSizeGi: 100
       instanceTypes:
         - cloudProvider: aws
           name: m7i.large
@@ -112,28 +113,18 @@ services:
           values:
             persistence:
               storageClass: "gp3"
-            service:
-              annotations:
-                service.beta.kubernetes.io/aws-load-balancer-type: "nlb"
-                service.beta.kubernetes.io/aws-load-balancer-cross-zone-load-balancing-enabled: "true"
         # GCP-specific optimizations
         - scope:
             "{{ $sys.deploymentCell.cloudProviderName }}": "gcp"
           values:
             persistence:
               storageClass: "ssd"
-            service:
-              annotations:
-                cloud.google.com/load-balancer-type: "Internal"
         # Azure-specific optimizations
         - scope:
             "{{ $sys.deploymentCell.cloudProviderName }}": "azure"
           values:
             persistence:
               storageClass: "managed-csi"
-            service:
-              annotations:
-                service.beta.kubernetes.io/azure-load-balancer-internal: "true"
     apiParameters:
       - key: adminUsername
         description: Storage Admin Username
@@ -157,6 +148,7 @@ services:
     dependsOn:
       - Model Registry
     compute:
+      rootVolumeSizeGi: 100
       instanceTypes:
         - cloudProvider: aws
           name: g4dn.xlarge
@@ -188,18 +180,12 @@ services:
       layeredChartValues:
         # Base configuration
         - values:
-            replicaCount: 1
-            mongoDesiredReplicas: 1
-            ingressEnabled: true
-            resources:
-              requests:
-                cpu: 4000m
-                memory: 16Gi
-                nvidia.com/gpu: 1
-              limits:
-                cpu: 8000m
-                memory: 32Gi
-                nvidia.com/gpu: 1
+            ingressEnabled: false
+            ngc_api_key: $secret.NGCAPIKEY
+            mongoMemoryRequest: 1Gi
+            mongoCpuRequest: 1
+            mongoCpuLimit: 1
+            mongoMemoryLimit: 2Gi
             persistence:
               enabled: true
               size: "200Gi"
@@ -302,6 +288,7 @@ services:
   - name: Dynamo Inference Service
     internal: true
     compute:
+      rootVolumeSizeGi: 100
       instanceTypes:
         - cloudProvider: aws
           name: g4dn.xlarge
