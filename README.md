@@ -10,58 +10,6 @@ This is a comprehensive example of an enterprise-grade NVIDIA AI/ML platform spe
 
 ![NVIDIA AI Multi-Cloud Pipeline](nvidia-ai-multi-cloud-pipeline-blueprint.png)
 
-```
-```
-┌─────────────────────────────────────────────────────────────────────────────────────────┐
-│                        NVIDIA AI Multi-Cloud Pipeline                                   │
-│                          Powered by Omnistrate Platform                                 │
-└─────────────────────────────────────────────────────────────────────────────────────────┘
-
-┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
-│                 │     │                 │     │                 │     │                 │
-│  Model Registry │────▶│ TAO Training    │────▶│ Dynamo Inference│────▶│   Monitoring    │
-│   (MinIO S3)    │     │   Service       │     │    Service      │     │    Stack        │
-│                 │     │                 │     │                 │     │                 │
-│ ┌─────────────┐ │     │ ┌─────────────┐ │     │ ┌─────────────┐ │     │ ┌─────────────┐ │
-│ │   Models    │ │     │ │ TAO Toolkit │ │     │ │   Dynamo    │ │     │ │ Prometheus  │ │
-│ │  Datasets   │ │     │ │ TensorFlow  │ │     │ │ TensorRT-LLM│ │     │ │   Grafana   │ │
-│ │ Checkpoints │ │     │ │  PyTorch    │ │     │ │ Auto-scaling│ │     │ │ Dashboards  │ │
-│ │ Versioning  │ │     │ │ Jupyter Lab │ │     │ │ Multi-replica│ │     │ │GPU Metrics │ │
-│ │             │ │     │ │TensorBoard  │ │     │ │   CRDs      │ │     │ │ Alerting    │ │
-│ └─────────────┘ │     │ └─────────────┘ │     │ └─────────────┘ │     │ └─────────────┘ │
-│                 │     │                 │     │                 │     │                 │
-│ Multi-Cloud:    │     │ Multi-Cloud:    │     │ Multi-Cloud:    │     │ Multi-Cloud:    │
-│ AWS: m7i.large  │     │ AWS: g4dn.xlarge│     │ AWS: g4dn.xlarge│     │ AWS: m5.xlarge  │
-│ GCP: n2-std-2   │     │ GCP: n2-std-4+L4│     │ GCP: n2-std-4+L4│     │ GCP: n2-std-4   │
-│ Azure: D2s_v3   │     │ Azure: NC4as_T4 │     │ Azure: NC4as_T4 │     │ Azure: D4s_v3   │
-│                 │     │                 │     │                 │     │                 │
-└─────────────────┘     └─────────────────┘     └─────────────────┘     └─────────────────┘
-
-┌─────────────────────────────────────────────────────────────────────────────────────────┐
-│                         Data Flow & Dependencies                                         │
-│                                                                                          │
-│  Storage Layer    ────▶    Training Layer    ────▶    Inference Layer   ────▶  Observability │
-│                                                                                          │
-│  • S3-compatible         • Model training           • Real-time serving      • Metrics collection │
-│  • Multi-bucket org      • Transfer learning        • Auto-scaling           • GPU monitoring    │
-│  • Cross-cloud sync      • Distributed compute      • Load balancing         • Cost analytics    │
-│  • Version control       • Experiment tracking      • A/B testing            • Alerting          │
-└─────────────────────────────────────────────────────────────────────────────────────────┘
-
-┌────────────────────────────────────────────────────────────────────────────────────────-─┐
-│                               NVIDIA OSS Ecosystem                                       │
-│                                                                                          │
-│  ┌─────────────┐    ┌─────────────-┐    ┌─────────────┐    ┌─────────────┐               │
-│  │ TAO Toolkit │    │   Dynamo     │    │   MinIO     │    │kube-prometheus│               │
-│  │   (OSS)     │    │    (OSS)     │    │  (OSS S3)   │    │   -stack    │               │
-│  │ TensorFlow  │    │ TensorRT-LLM │    │ Model Store │    │ Monitoring  │               │
-│  │   PyTorch   │    │ Disaggregated│    │ Versioning  │    │ & Alerting  │               │
-│  └─────────────┘    └─────────────-┘    └─────────────┘    └─────────────┘               │
-└──────────────────────────────────────────────────────────────────────────────────────-───┘
-```
-
-
-
 ## Getting Started: Deploy Your AI Platform in Minutes
 
 ### 1. Prerequisites
