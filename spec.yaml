@@ -11,9 +11,47 @@ deployment:
     GcpProjectNumber: "383746634676"
 
 services:
+  - name: AI Platform Cluster
+    internal: false
+    passive: true
+    dependsOn:
+      - Dynamo Inference Service
+      - TAO Training Service
+      # - Monitoring Stack
+    apiParameters:
+      - key: inferenceReplicas
+        description: Number of Inference Replicas
+        name: Inference Replicas
+        type: String
+        modifiable: true
+        required: false
+        export: true
+        defaultValue: "2"
+        parameterDependencyMap:
+          Dynamo Inference Service: inferenceReplicas
+      # Inherited parameters
+      - key: adminUsername
+        description: Storage Admin Username
+        name: Admin Username
+        type: String
+        modifiable: false
+        required: false
+        export: true
+        parameterDependencyMap:
+          TAO Training Service: adminUsername
+      - key: adminPassword
+        description: Storage Admin Password
+        name: Admin Password
+        type: Password
+        modifiable: false
+        required: true
+        export: true
+        parameterDependencyMap:
+          TAO Training Service: adminPassword
+          # Monitoring Stack: monitoringPassword
   # Core Data Storage Service
   - name: Model Registry
-    internal: false
+    internal: true
     compute:
       instanceTypes:
         - cloudProvider: aws
@@ -25,13 +63,6 @@ services:
     network:
       ports:
         - 9090
-    endpointConfiguration:
-      console:
-        host: $sys.network.internalClusterEndpoint
-        ports:
-          - 9090
-        primary: true
-        networkingType: PRIVATE
     helmChartConfiguration:
       chartName: minio
       chartVersion: 17.0.19
@@ -122,6 +153,7 @@ services:
 
   # Training Service - TAO Toolkit
   - name: TAO Training Service
+    internal: true
     dependsOn:
       - Model Registry
     compute:
@@ -140,6 +172,14 @@ services:
       ports:
         - 8888  # Jupyter Notebook
         - 6006  # TensorBoard
+        - 8000  # Swagger
+    endpointConfiguration:
+      console:
+        host: $sys.network.externalClusterEndpoint
+        ports:
+          - 8000
+        primary: true
+        networkingType: PUBLIC
     helmChartConfiguration:
       chartName: tao-toolkit-api
       chartVersion: 6.25.7
@@ -149,7 +189,8 @@ services:
         # Base configuration
         - values:
             replicaCount: 1
-            ingressEnabled: false
+            mongoDesiredReplicas: 1
+            ingressEnabled: true
             resources:
               requests:
                 cpu: 4000m
@@ -224,6 +265,10 @@ services:
               agentpool: gpu
             persistence:
               storageClass: "managed-csi"
+            service:
+              annotations:
+                service.beta.kubernetes.io/azure-load-balancer-internal: "false"
+                service.beta.kubernetes.io/azure-load-balancer-resource-group: "rg-eastus2-hc-0xtrutlsz"
     apiParameters:
       - key: trainingGpuCount
         description: Number of GPUs for Training
@@ -255,10 +300,7 @@ services:
 
   # Inference Service - NVIDIA Dynamo
   - name: Dynamo Inference Service
-    dependsOn:
-      - Model Registry
-      - TAO Training Service
-      # - Monitoring Stack
+    internal: true
     compute:
       instanceTypes:
         - cloudProvider: aws
@@ -313,28 +355,6 @@ services:
         required: false
         export: true
         defaultValue: "2"
-      # Inherited parameters
-      - key: adminUsername
-        description: Storage Admin Username
-        name: Admin Username
-        type: String
-        modifiable: false
-        required: false
-        export: true
-        parameterDependencyMap:
-          Model Registry: adminUsername
-          TAO Training Service: adminUsername
-      - key: adminPassword
-        description: Storage Admin Password
-        name: Admin Password
-        type: Password
-        modifiable: false
-        required: true
-        export: true
-        parameterDependencyMap:
-          Model Registry: adminPassword
-          TAO Training Service: adminPassword
-          # Monitoring Stack: monitoringPassword
 
   # Monitoring Stack
   # - name: Monitoring Stack
